@@ -1,10 +1,10 @@
 /**
- * Agora Stable Swaps - Ethereum Sepolia testnet sabitleri ve ABI'lar.
- * Kaynak: https://docs.agora.finance/stable-swaps/guides/executing-swap
+ * Agora Stable Swaps - Ethereum Sepolia addresses and ABIs.
+ * Source: https://docs.agora.finance/stable-swaps/guides/executing-swap
  */
 
 // ---------------------------------------------------------------------------
-// Adresler (Ethereum Sepolia)
+// Addresses (Ethereum Sepolia)
 // ---------------------------------------------------------------------------
 export const ADDRESSES = {
   factory: "0x8468587Af422ad440F58a57E955eCA6A970b5375",
@@ -19,7 +19,7 @@ export const ADDRESSES = {
 export const APPROVED_SWAPPER = "APPROVED_SWAPPER";
 
 // ---------------------------------------------------------------------------
-// ABI'lar (sadece kullandigimiz fonksiyonlar)
+// ABIs (only the functions these scripts use)
 // ---------------------------------------------------------------------------
 export const stableSwapAbi = [
   {
@@ -41,6 +41,7 @@ export const stableSwapAbi = [
   { type: "function", name: "reserve1", inputs: [], outputs: [{ type: "uint256" }], stateMutability: "view" },
   { type: "function", name: "isPaused", inputs: [], outputs: [{ type: "bool" }], stateMutability: "view" },
   { type: "function", name: "getPrice", inputs: [], outputs: [{ type: "uint256" }], stateMutability: "view" },
+  { type: "function", name: "getPriceNormalized", inputs: [], outputs: [{ type: "uint256" }], stateMutability: "view" },
   { type: "function", name: "token0PurchaseFee", inputs: [], outputs: [{ type: "uint256" }], stateMutability: "view" },
   { type: "function", name: "token1PurchaseFee", inputs: [], outputs: [{ type: "uint256" }], stateMutability: "view" },
   {

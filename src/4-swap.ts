@@ -1,29 +1,30 @@
 /**
- * Adim 4: AUSD -> CTK swap (fixed-input, swapExactTokensForTokens).
+ * Step 4: swap AUSD for CTK (fixed input, swapExactTokensForTokens).
  *
- * Calistir:  npm run swap
- *            npm run swap -- 250        (250 AUSD swapla)
+ *   npm run swap
+ *   npm run swap -- 250
  *
- * Akis:
- *   1. On kontroller (whitelist, paused, bakiye)
- *   2. Token sirasini zincirden oku, swapPath kur
- *   3. getAmountsOut ile teklif al, slippage payi birak
- *   4. Sadece gerekiyorsa approve gonder
+ * Flow:
+ *   1. Preflight checks (role, paused, balance)
+ *   2. Resolve token order from the chain, build swapPath
+ *   3. Quote via getAmountsOut, subtract slippage headroom
+ *   4. Approve only if current allowance is short
  *   5. swapExactTokensForTokens
  */
 import { formatUnits, parseUnits } from "viem";
 import { client, account, explorerTx } from "./client.js";
 import { ADDRESSES, stableSwapAbi, erc20Abi, APPROVED_SWAPPER } from "./config.js";
 
-// Teklif ile gercek cikti arasindaki kabul edilebilir fark (basis point).
-// 50 bps = %0.5. Dokumandaki ornek teklifi dogrudan amountOutMin yapiyor;
-// bu fiyat oynarsa InsufficientOutputAmount ile revert eder.
+// Tolerated gap between quote and actual output, in basis points.
+// 50 bps = 0.5%. Price comes from an oracle and can update between the quote
+// and the transaction landing; passing the quote directly as amountOutMin
+// risks InsufficientOutputAmount().
 const SLIPPAGE_BPS = 50n;
 
 const PAIR = ADDRESSES.pair;
 const INPUT_SYMBOL = "AUSD";
 
-/** Pair'in name() ciktisindan token sirasini cozer, [input, output] dizisi dondurur. */
+/** Resolve token order from the pair and return [tokenIn, tokenOut]. */
 async function buildSwapPath(inputSymbol: string) {
   const [name, token0, token1] = await Promise.all([
     client.readContract({ address: PAIR, abi: stableSwapAbi, functionName: "name" }),
@@ -31,19 +32,19 @@ async function buildSwapPath(inputSymbol: string) {
     client.readContract({ address: PAIR, abi: stableSwapAbi, functionName: "token1" }),
   ]);
 
-  // name formati: "TOKEN0/TOKEN1-major.minor.patch"
+  // "TOKEN0/TOKEN1-major.minor.patch"
   const [sym0, rest] = (name as string).split("/");
   const sym1 = rest?.split("-")[0] ?? "";
 
   if (sym0 === inputSymbol) return { path: [token0, token1] as const, name, inSym: sym0, outSym: sym1 };
   if (sym1 === inputSymbol) return { path: [token1, token0] as const, name, inSym: sym1, outSym: sym0 };
-  throw new Error(`${inputSymbol} bu pair'de yok: ${name}`);
+  throw new Error(`${inputSymbol} is not part of pair ${name}`);
 }
 
 async function main() {
   const humanAmount = process.argv[2] ?? "100";
 
-  // --- 1. On kontroller -----------------------------------------------------
+  // --- 1. Preflight ---------------------------------------------------------
   const [whitelisted, paused] = await Promise.all([
     client.readContract({
       address: PAIR,
@@ -54,14 +55,14 @@ async function main() {
     client.readContract({ address: PAIR, abi: stableSwapAbi, functionName: "isPaused" }),
   ]);
 
-  if (paused) throw new Error("Pair su anda paused. Swap yapilamaz.");
-  if (!whitelisted) throw new Error("Cuzdanin APPROVED_SWAPPER degil. Once: npm run whitelist");
+  if (paused) throw new Error("Pair is paused.");
+  if (!whitelisted) throw new Error("Wallet lacks APPROVED_SWAPPER. Run: npm run whitelist");
 
-  // --- 2. Swap yonu ---------------------------------------------------------
+  // --- 2. Direction ---------------------------------------------------------
   const { path, name, inSym, outSym } = await buildSwapPath(INPUT_SYMBOL);
   const [tokenIn, tokenOut] = path;
-  console.log(`Pair: ${name}`);
-  console.log(`Yon : ${inSym} -> ${outSym}`);
+  console.log(`Pair     : ${name}`);
+  console.log(`Direction: ${inSym} -> ${outSym}`);
 
   const [decIn, decOut] = await Promise.all([
     client.readContract({ address: tokenIn, abi: erc20Abi, functionName: "decimals" }),
@@ -78,12 +79,12 @@ async function main() {
   });
   if (balance < amountIn) {
     throw new Error(
-      `Yetersiz ${inSym}. Bakiye ${formatUnits(balance, decIn)}, gereken ${humanAmount}. ` +
-        `Once: npm run faucet`,
+      `Insufficient ${inSym}. Have ${formatUnits(balance, decIn)}, need ${humanAmount}. ` +
+        `Run: npm run faucet`,
     );
   }
 
-  // --- 3. Teklif ------------------------------------------------------------
+  // --- 3. Quote -------------------------------------------------------------
   const amounts = (await client.readContract({
     address: PAIR,
     abi: stableSwapAbi,
@@ -94,11 +95,11 @@ async function main() {
   const quoted = amounts[1];
   const amountOutMin = (quoted * (10_000n - SLIPPAGE_BPS)) / 10_000n;
 
-  console.log(`\nGirdi        : ${formatUnits(amountIn, decIn)} ${inSym}`);
-  console.log(`Teklif       : ${formatUnits(quoted, decOut)} ${outSym}`);
-  console.log(`Min kabul    : ${formatUnits(amountOutMin, decOut)} ${outSym} (%${Number(SLIPPAGE_BPS) / 100} slippage)`);
+  console.log(`\nInput    : ${formatUnits(amountIn, decIn)} ${inSym}`);
+  console.log(`Quote    : ${formatUnits(quoted, decOut)} ${outSym}`);
+  console.log(`Min accept: ${formatUnits(amountOutMin, decOut)} ${outSym} (${Number(SLIPPAGE_BPS) / 100}% slippage)`);
 
-  // --- 4. Approve (sadece gerekiyorsa) -------------------------------------
+  // --- 4. Approve if needed -------------------------------------------------
   const allowance = await client.readContract({
     address: tokenIn,
     abi: erc20Abi,
@@ -107,7 +108,7 @@ async function main() {
   });
 
   if (allowance < amountIn) {
-    console.log(`\nApprove gerekiyor (mevcut allowance: ${formatUnits(allowance, decIn)})...`);
+    console.log(`\nApproval needed (current allowance: ${formatUnits(allowance, decIn)})...`);
     const { request } = await client.simulateContract({
       address: tokenIn,
       abi: erc20Abi,
@@ -118,12 +119,12 @@ async function main() {
     console.log("  tx:", explorerTx(hash));
     await client.waitForTransactionReceipt({ hash });
   } else {
-    console.log("\nAllowance yeterli, approve atlandi.");
+    console.log("\nAllowance sufficient, skipping approval.");
   }
 
   // --- 5. Swap --------------------------------------------------------------
-  const deadline = BigInt(Math.floor(Date.now() / 1000) + 300); // +5 dk
-  console.log("\nswapExactTokensForTokens gonderiliyor...");
+  const deadline = BigInt(Math.floor(Date.now() / 1000) + 300); // +5 min
+  console.log("\nSending swapExactTokensForTokens...");
 
   const { request } = await client.simulateContract({
     address: PAIR,
@@ -143,10 +144,10 @@ async function main() {
     functionName: "balanceOf",
     args: [account.address],
   });
-  console.log(`\nYeni ${outSym} bakiyesi: ${formatUnits(newBal, decOut)}`);
+  console.log(`\nNew ${outSym} balance: ${formatUnits(newBal, decOut)}`);
 }
 
 main().catch((e) => {
-  console.error("\nHATA:", e.shortMessage ?? e.message);
+  console.error("\nERROR:", e.shortMessage ?? e.message);
   process.exit(1);
 });

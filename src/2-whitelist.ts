@@ -1,11 +1,13 @@
 /**
- * Adim 2: Kendini APPROVED_SWAPPER olarak whitelist'e ekle.
+ * Step 2: grant yourself the APPROVED_SWAPPER role.
  *
- * Calistir:  npm run whitelist
+ *   npm run whitelist
  *
- * Agora Stable Swaps izinli (permissioned) bir protokol. Bu rol olmadan
- * swap fonksiyonlari AddressIsNotRole("APPROVED_SWAPPER") ile revert eder.
- * Self-whitelist SADECE testnet'te mumkun; mainnet'te KYC gerekiyor.
+ * Agora Stable Swaps is permissioned. Without this role every swap reverts
+ * with AddressIsNotRole("APPROVED_SWAPPER").
+ *
+ * Self-whitelisting works on testnets only. On mainnet the role requires KYC
+ * through Agora.
  */
 import { client, account, explorerTx } from "./client.js";
 import { ADDRESSES, stableSwapAbi, whitelisterAbi, APPROVED_SWAPPER } from "./config.js";
@@ -20,15 +22,16 @@ async function isWhitelisted(address: `0x${string}`) {
 }
 
 async function main() {
-  console.log("Cuzdan:", account.address);
+  console.log("Wallet:", account.address);
   console.log("Pair  :", ADDRESSES.pair);
 
+  // Check first so we don't burn gas on a no-op.
   if (await isWhitelisted(account.address)) {
-    console.log("\nZaten whitelist'tesin. Swap yapabilirsin.");
+    console.log("\nAlready whitelisted. You can swap.");
     return;
   }
 
-  console.log("\nWhitelist'te degilsin, setApprovedSwapper cagriliyor...");
+  console.log("\nNot whitelisted. Calling setApprovedSwapper...");
   const { request } = await client.simulateContract({
     address: ADDRESSES.whitelister,
     abi: whitelisterAbi,
@@ -39,11 +42,12 @@ async function main() {
   console.log("  tx:", explorerTx(hash));
   await client.waitForTransactionReceipt({ hash });
 
+  // A successful receipt does not guarantee the role landed. Read it back.
   const ok = await isWhitelisted(account.address);
-  console.log(ok ? "\nWhitelist basarili." : "\nTx gecti ama rol hala yok, kontrol et.");
+  console.log(ok ? "\nWhitelisted." : "\nTransaction succeeded but role is still missing.");
 }
 
 main().catch((e) => {
-  console.error("\nHATA:", e.message);
+  console.error("\nERROR:", e.message);
   process.exit(1);
 });

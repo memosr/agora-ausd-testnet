@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Agora AUSD / Stable Swaps Sepolia testnet playground",
+  "description": "Run Agora Stable Swaps end to end on Ethereum Sepolia",
   "scripts": {
     "faucet": "tsx src/1-faucet.ts",
     "whitelist": "tsx src/2-whitelist.ts",

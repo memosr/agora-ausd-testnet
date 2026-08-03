@@ -1,9 +1,9 @@
 /**
- * Adim 1: Faucet'ten testnet AUSD (ve istege bagli CTK) cek.
+ * Step 1: pull testnet AUSD (and CTK) from the faucet contracts.
  *
- * Calistir:  npm run faucet
+ *   npm run faucet
  *
- * Not: Once cuzdaninda Sepolia ETH olmali (gas icin).
+ * Requires Sepolia ETH for gas:
  * https://cloud.google.com/application/web3/faucet/ethereum/sepolia
  */
 import { formatUnits } from "viem";
@@ -16,12 +16,13 @@ async function balanceOf(token: `0x${string}`) {
     client.readContract({ address: token, abi: erc20Abi, functionName: "decimals" }),
     client.readContract({ address: token, abi: erc20Abi, functionName: "symbol" }),
   ]);
-  return { raw, decimals, symbol, formatted: formatUnits(raw, decimals) };
+  return { symbol, formatted: formatUnits(raw, decimals) };
 }
 
 async function requestFromFaucet(faucet: `0x${string}`, label: string) {
-  console.log(`\n${label} faucet cagriliyor...`);
+  console.log(`\nCalling ${label} faucet...`);
   try {
+    // Simulate first so a doomed transaction never costs gas.
     const { request } = await client.simulateContract({
       address: faucet,
       abi: faucetAbi,
@@ -29,23 +30,23 @@ async function requestFromFaucet(faucet: `0x${string}`, label: string) {
       args: [account.address],
     });
     const hash = await client.writeContract(request);
-    console.log(`  tx gonderildi: ${explorerTx(hash)}`);
+    console.log(`  tx: ${explorerTx(hash)}`);
     const receipt = await client.waitForTransactionReceipt({ hash });
-    console.log(`  onaylandi (block ${receipt.blockNumber}, status: ${receipt.status})`);
+    console.log(`  confirmed (block ${receipt.blockNumber}, status: ${receipt.status})`);
   } catch (err) {
-    // Faucet'ler genelde cooldown uygular; bu bir hata degil, bilgi.
-    console.log(`  atlandi: ${(err as Error).message.split("\n")[0]}`);
+    // Faucets rate-limit per address. Not fatal, just skip.
+    console.log(`  skipped: ${(err as Error).message.split("\n")[0]}`);
   }
 }
 
 async function main() {
-  console.log("Cuzdan:", account.address);
+  console.log("Wallet:", account.address);
 
   const eth = await client.getBalance({ address: account.address });
   console.log("Sepolia ETH:", formatUnits(eth, 18));
   if (eth === 0n) {
     throw new Error(
-      "Sepolia ETH bakiyen sifir. Gas olmadan islem gonderemezsin.\n" +
+      "Zero ETH balance. You cannot send transactions without gas.\n" +
         "Faucet: https://cloud.google.com/application/web3/faucet/ethereum/sepolia",
     );
   }
@@ -53,7 +54,7 @@ async function main() {
   await requestFromFaucet(ADDRESSES.ausdFaucet, "AUSD");
   await requestFromFaucet(ADDRESSES.ctkFaucet, "CTK");
 
-  console.log("\n--- Bakiyeler ---");
+  console.log("\n--- Balances ---");
   for (const token of [ADDRESSES.ausd, ADDRESSES.ctk] as const) {
     const b = await balanceOf(token);
     console.log(`  ${b.symbol.padEnd(5)} ${b.formatted}`);
@@ -61,6 +62,6 @@ async function main() {
 }
 
 main().catch((e) => {
-  console.error("\nHATA:", e.message);
+  console.error("\nERROR:", e.message);
   process.exit(1);
 });

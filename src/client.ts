@@ -1,7 +1,8 @@
 /**
- * Sepolia icin tek bir viem wallet client.
- * Hem yazma (writeContract) hem okuma (readContract) yapabilir,
- * nonce'lari otomatik takip eder.
+ * Single viem client for Sepolia.
+ *
+ * Extended with publicActions so one object handles both writes and reads,
+ * and with nonceManager so back-to-back transactions don't collide.
  */
 import { http, createWalletClient, publicActions, nonceManager } from "viem";
 import { sepolia } from "viem/chains";
@@ -12,12 +13,12 @@ const pk = process.env.TESTNET_HOTWALLET_PK;
 
 if (!pk) {
   throw new Error(
-    ".env dosyasinda TESTNET_HOTWALLET_PK yok. .env.example dosyasini kopyalayip doldur.",
+    "TESTNET_HOTWALLET_PK missing from .env. Copy .env.example and fill it in.",
   );
 }
 if (!/^0x[0-9a-fA-F]{64}$/.test(pk)) {
   throw new Error(
-    "TESTNET_HOTWALLET_PK formati hatali. 0x ile baslayan 64 karakterlik hex olmali.",
+    "TESTNET_HOTWALLET_PK is malformed. Expected 0x followed by 64 hex characters.",
   );
 }
 
